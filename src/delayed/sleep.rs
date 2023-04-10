@@ -24,12 +24,12 @@ impl SleepDelay {
 }
 
 impl Future for SleepDelay {
-    type Output = bool;
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         ready!(this.sleep.as_mut().poll(cx));
         this.sleep.reset(Instant::now() + *this.dur);
-        Poll::Ready(false)
+        Poll::Ready(())
     }
 }

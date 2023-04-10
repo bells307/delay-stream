@@ -1,31 +1,40 @@
-use std::future::Future;
+use futures::Stream;
+use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
-pub struct Counted {
-    count: usize,
-    polled: AtomicUsize,
+pin_project! {
+    pub struct CountedStream<S> {
+        #[pin]
+        inner_stream: S,
+        count: usize,
+        polled: AtomicUsize,
+    }
 }
 
-impl Counted {
-    pub fn new(count: usize) -> Self {
+impl<S> CountedStream<S> {
+    pub fn new(inner_stream: S, count: usize) -> Self {
         Self {
+            inner_stream,
             count,
             polled: AtomicUsize::new(0),
         }
     }
 }
 
-impl Future for Counted {
-    type Output = bool;
+impl<S: Stream> Stream for CountedStream<S> {
+    type Item = S::Item;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.polled.fetch_add(1, Ordering::SeqCst);
-        if self.polled.load(Ordering::SeqCst) <= self.count {
-            Poll::Ready(false)
-        } else {
-            Poll::Ready(true)
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        if this.polled.load(Ordering::SeqCst) >= *this.count {
+            return Poll::Ready(None);
         }
+
+        let item = ready!(this.inner_stream.poll_next(cx));
+        this.polled.fetch_add(1, Ordering::SeqCst);
+        Poll::Ready(item)
     }
 }
