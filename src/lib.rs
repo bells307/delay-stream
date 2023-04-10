@@ -1,72 +1,71 @@
-use futures::{FutureExt, Stream};
-use std::collections::LinkedList;
-use std::mem;
+use futures::Future;
+use futures::{ready, Stream};
+use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::time;
-use tokio::time::Sleep;
+use tokio::time::{Instant, Sleep};
 
-pub struct DelayStream<T> {
-    values: LinkedList<T>,
-    dur: Duration,
-    sleep: Option<Pin<Box<Sleep>>>,
+pin_project! {
+    /// `Stream` с задержкой получения элементов
+    /// ```
+    /// use delay_stream::Delayed;
+    /// use futures::{stream, StreamExt};
+    /// use std::time::Duration;
+    ///
+    /// #[tokio::test]
+    /// async fn delayed_stream() {
+    ///     let mut stream = stream::iter(vec![1, 3, 2, 4, 5]).delayed(Duration::from_secs(1));
+    ///
+    ///     while let Some(val) = stream.next().await {
+    ///         // spent 1 sec ...
+    ///         println!("{}", val);
+    ///     }
+    /// }
+    /// ```
+    pub struct DelayStream<S: Stream> {
+        // Внутренний стрим
+        #[pin]
+        stream: S,
+        #[pin]
+        // Future ожидания
+        sleep: Sleep,
+        // Период ожидания
+        dur: Duration,
+    }
 }
 
-impl<T> DelayStream<T> {
-    pub fn new(values: LinkedList<T>, dur: Duration) -> Self {
+/// Расширение для `Stream`, позволяющее добавить ожидание перед выдачей элемента
+pub trait Delayed<S: Stream> {
+    fn delayed(self, dur: Duration) -> DelayStream<S>;
+}
+
+impl<S: Stream> Delayed<S> for S {
+    fn delayed(self, dur: Duration) -> DelayStream<S> {
+        DelayStream::new(self, dur)
+    }
+}
+
+impl<S: Stream> DelayStream<S> {
+    pub fn new(stream: S, dur: Duration) -> Self {
         Self {
-            values,
+            stream,
             dur,
-            sleep: None,
+            sleep: time::sleep(dur),
         }
     }
 }
 
-impl<T: Unpin> Stream for DelayStream<T> {
-    type Item = T;
+impl<S: Stream> Stream for DelayStream<S> {
+    type Item = S::Item;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.values.is_empty() {
-            return Poll::Ready(None);
-        };
-
-        match &mut self.sleep {
-            Some(sleep) => match sleep.poll_unpin(cx) {
-                Poll::Ready(_) => {
-                    mem::swap(&mut self.sleep, &mut None);
-                    self.values
-                        .pop_front()
-                        .map(|v| Poll::Ready(Some(v)))
-                        .unwrap_or(Poll::Ready(None))
-                }
-                Poll::Pending => Poll::Pending,
-            },
-            None => {
-                let mut sleep = Box::pin(time::sleep(self.dur));
-                let _ = sleep.poll_unpin(cx);
-                mem::swap(&mut self.sleep, &mut Some(sleep));
-                Poll::Pending
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::StreamExt;
-
-    #[tokio::test]
-    async fn it_works() {
-        let stream = DelayStream::new(
-            LinkedList::from([1, 3, 2, 4, 5]),
-            Duration::from_millis(2000),
-        );
-
-        assert_eq!(
-            stream.collect::<LinkedList<_>>().await,
-            LinkedList::from([1, 3, 2, 4, 5])
-        );
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        // Проверяем, что ожидание завершено. Если нет - возвращаем `Poll::Pending`
+        ready!(this.sleep.as_mut().poll(cx));
+        // Сбрасываем таймаут ожидания
+        this.sleep.reset(Instant::now() + *this.dur);
+        this.stream.poll_next(cx)
     }
 }
