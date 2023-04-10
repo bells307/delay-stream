@@ -1,88 +1,73 @@
-pub mod interval;
-pub mod sleep;
+mod counted;
+mod delayed;
 
-use crate::interval::IntervalDelay;
-use crate::sleep::SleepDelay;
-use futures::Future;
-use futures::{ready, Stream};
-use pin_project_lite::pin_project;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use crate::counted::CountedStream;
+use crate::delayed::sleep::SleepDelay;
+use crate::delayed::tick::TickDelay;
+use crate::delayed::DelayedStream;
+use futures::Stream;
 use std::time::Duration;
 
-/// Расширения для `Stream`, которые позволяют добавить ожидание по времени между отдачами элементов
+/// Расширение для `Stream`, которое позволяет ограничивать/замедлять `Stream`
 /// ```
-/// use delay_stream::DelayedStreamExt;
+/// use delay_stream::ThrottledStreamExt;
 /// use futures::{stream, StreamExt};
 /// use std::pin::pin;
 /// use std::time::Duration;
 ///
-/// #[tokio::test]
-/// async fn sleep_delayed() {
-///     let stream = stream::iter(vec![1, 3, 2, 4, 5]).sleep_delayed(Duration::from_secs(1));
+/// #[tokio::main]
+/// async fn main() {
+///     let stream = stream::iter(vec![1, 3, 2, 4, 5])
+///         .tick(Duration::from_secs(1))
+///         .max(4);
+///
 ///     let mut stream = pin!(stream);
 ///
-///     while let Some(val) = stream.next().await {
-///         // spent 1 sec ...
-///         println!("{}", val);
-///     }
-/// }
+///     let mut count = 0;
 ///
-/// #[tokio::test]
-/// async fn interval_delayed() {
-///     let stream = stream::iter(vec![1, 3, 2, 4, 5]).interval(Duration::from_secs(1));
-///     let mut stream = pin!(stream);
-///
-///     while let Some(val) = stream.next().await {
-///         // spent 1 sec ...
-///         println!("{}", val);
+///     while let Some(v) = stream.next().await {
+///         // elapsed 1 sec ...
+///         println!("{}", v);
+///         count += 1;
 ///     }
+///
+///     assert_eq!(count, 4);
 /// }
 /// ```
-pub trait DelayedStreamExt<S: Stream> {
-    /// Ожидание полного промежутка времени `Duration` между выдачей элементов `Stream`'а
-    fn sleep_delayed(self, dur: Duration) -> DelayStream<S, SleepDelay>;
+pub trait ThrottledStreamExt<S: Stream> {
+    /// Получить `Stream`, который отдаст максимально возможное количество элементов
+    fn max(self, count: usize) -> CountedStream<S>;
+
+    /// Ожидание (засыпание) промежутка времени `dur` между отда элементов `Stream`'а
+    fn sleep(self, dur: Duration) -> DelayedStream<S, SleepDelay>;
 
     /// Интервальное ожидание между отдачами элемента. Это значит, что элементы будут выдаваться
     /// **не чаще**, чем указанный `Duration`.
-    fn interval_delayed(self, dur: Duration) -> DelayStream<S, IntervalDelay>;
+    fn tick(self, dur: Duration) -> DelayedStream<S, TickDelay>;
 }
 
-impl<S: Stream> DelayedStreamExt<S> for S {
-    fn sleep_delayed(self, dur: Duration) -> DelayStream<S, SleepDelay> {
-        DelayStream::new(self, SleepDelay::new(dur))
+impl<S: Stream> ThrottledStreamExt<S> for S {
+    fn max(self, count: usize) -> CountedStream<S> {
+        CountedStream::new(self, count)
     }
 
-    fn interval_delayed(self, dur: Duration) -> DelayStream<S, IntervalDelay> {
-        DelayStream::new(self, IntervalDelay::new(dur))
+    fn sleep(self, dur: Duration) -> DelayedStream<S, SleepDelay> {
+        DelayedStream::new(self, SleepDelay::new(dur))
     }
-}
 
-pin_project! {
-    /// `Stream` с задержкой получения элементов
-    pub struct DelayStream<S: Stream, F: Future> {
-        // Внутренний стрим
-        #[pin]
-        stream: S,
-        #[pin]
-        // Future задержки стрима
-        delay_fut: F,
+    fn tick(self, dur: Duration) -> DelayedStream<S, TickDelay> {
+        DelayedStream::new(self, TickDelay::new(dur))
     }
 }
 
-impl<S: Stream, F: Future> DelayStream<S, F> {
-    pub fn new(stream: S, delay_fut: F) -> Self {
-        Self { stream, delay_fut }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use crate::ThrottledStreamExt;
+    use futures::{stream, StreamExt};
 
-impl<S: Stream, F: Future> Stream for DelayStream<S, F> {
-    type Item = S::Item;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        // Проверяем, что ожидание завершено. Если нет - возвращаем `Poll::Pending`
-        ready!(this.delay_fut.as_mut().poll(cx));
-        this.stream.poll_next(cx)
+    #[tokio::test]
+    async fn max() {
+        let stream = stream::iter(vec![1, 3, 2, 4, 5]).max(3);
+        assert_eq!(stream.collect::<Vec<_>>().await.len(), 3);
     }
 }

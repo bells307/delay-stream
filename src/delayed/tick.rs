@@ -7,13 +7,13 @@ use tokio::time;
 use tokio::time::Interval;
 
 pin_project! {
-    pub struct IntervalDelay {
+    pub struct TickDelay {
         #[pin]
         interval: Interval,
     }
 }
 
-impl IntervalDelay {
+impl TickDelay {
     pub fn new(dur: Duration) -> Self {
         Self {
             interval: time::interval(dur),
@@ -21,7 +21,7 @@ impl IntervalDelay {
     }
 }
 
-impl Future for IntervalDelay {
+impl Future for TickDelay {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
