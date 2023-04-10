@@ -41,19 +41,19 @@ use std::time::Duration;
 /// ```
 pub trait DelayedStreamExt<S: Stream> {
     /// Ожидание полного промежутка времени `Duration` между выдачей элементов `Stream`'а
-    fn sleep(self, dur: Duration) -> DelayStream<S, SleepDelay>;
+    fn sleep_delayed(self, dur: Duration) -> DelayStream<S, SleepDelay>;
 
     /// Интервальное ожидание между отдачами элемента. Это значит, что элементы будут выдаваться
     /// **не чаще**, чем указанный `Duration`.
-    fn interval(self, dur: Duration) -> DelayStream<S, IntervalDelay>;
+    fn interval_delayed(self, dur: Duration) -> DelayStream<S, IntervalDelay>;
 }
 
 impl<S: Stream> DelayedStreamExt<S> for S {
-    fn sleep(self, dur: Duration) -> DelayStream<S, SleepDelay> {
+    fn sleep_delayed(self, dur: Duration) -> DelayStream<S, SleepDelay> {
         DelayStream::new(self, SleepDelay::new(dur))
     }
 
-    fn interval(self, dur: Duration) -> DelayStream<S, IntervalDelay> {
+    fn interval_delayed(self, dur: Duration) -> DelayStream<S, IntervalDelay> {
         DelayStream::new(self, IntervalDelay::new(dur))
     }
 }
