@@ -22,9 +22,9 @@ impl IntervalDelay {
 }
 
 impl Future for IntervalDelay {
-    type Output = ();
+    type Output = bool;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().interval.poll_tick(cx).map(|_| ())
+        self.project().interval.poll_tick(cx).map(|_| false)
     }
 }
