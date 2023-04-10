@@ -10,7 +10,7 @@ use std::time::Duration;
 
 /// Расширение для `Stream`, которое позволяет ограничивать/замедлять `Stream`
 /// ```
-/// use delay_stream::ThrottledStreamExt;
+/// use throttled_stream::ThrottledStreamExt;
 /// use futures::{stream, StreamExt};
 /// use std::pin::pin;
 /// use std::time::Duration;

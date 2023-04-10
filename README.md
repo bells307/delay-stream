@@ -16,7 +16,7 @@ pub trait ThrottledStreamExt<S: Stream> {
 
 ## Example
 ```rust
-use delay_stream::ThrottledStreamExt;
+use throttled_stream::ThrottledStreamExt;
 use futures::{stream, StreamExt};
 use std::pin::pin;
 use std::time::Duration;
