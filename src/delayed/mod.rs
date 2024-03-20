@@ -1,4 +1,5 @@
 pub mod sleep;
+pub mod tick;
 
 use futures::{ready, Stream};
 use pin_project_lite::pin_project;

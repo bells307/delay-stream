@@ -3,6 +3,7 @@ mod delayed;
 
 use crate::counted::CountedStream;
 use crate::delayed::sleep::SleepDelay;
+use crate::delayed::tick::TickDelay;
 use crate::delayed::DelayedStream;
 use futures::Stream;
 use std::time::Duration;
@@ -37,8 +38,12 @@ pub trait ThrottledStreamExt<S: Stream> {
     /// Получить `Stream`, который отдаст максимально возможное количество элементов
     fn max(self, count: usize) -> CountedStream<S>;
 
-    /// Ожидание (засыпание) промежутка времени `dur` между отдачами элементов `Stream`'а
+    /// Ожидание (засыпание) промежутка времени `dur` между отда элементов `Stream`'а
     fn sleep(self, dur: Duration) -> DelayedStream<S, SleepDelay>;
+
+    /// Интервальное ожидание между отдачами элемента. Это значит, что элементы будут выдаваться
+    /// **не чаще**, чем указанный `Duration`.
+    fn tick(self, dur: Duration) -> DelayedStream<S, TickDelay>;
 }
 
 impl<S: Stream> ThrottledStreamExt<S> for S {
@@ -49,22 +54,20 @@ impl<S: Stream> ThrottledStreamExt<S> for S {
     fn sleep(self, dur: Duration) -> DelayedStream<S, SleepDelay> {
         DelayedStream::new(self, SleepDelay::new(dur))
     }
+
+    fn tick(self, dur: Duration) -> DelayedStream<S, TickDelay> {
+        DelayedStream::new(self, TickDelay::new(dur))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::ThrottledStreamExt;
-    use async_runtime::Executor;
     use futures::{stream, StreamExt};
 
-    #[test]
-    fn max() {
-        Executor::default().register();
-
-        Executor::block_on(|_| async {
-            let stream = stream::iter(vec![1, 3, 2, 4, 5]).max(3);
-            assert_eq!(stream.collect::<Vec<_>>().await.len(), 3);
-        })
-        .unwrap();
+    #[tokio::test]
+    async fn max() {
+        let stream = stream::iter(vec![1, 3, 2, 4, 5]).max(3);
+        assert_eq!(stream.collect::<Vec<_>>().await.len(), 3);
     }
 }
